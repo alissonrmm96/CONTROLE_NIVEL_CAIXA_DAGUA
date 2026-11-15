@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Monitoramento IoT — Caixa d'Água Inteligente</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
     body {
       font-family: 'Inter', sans-serif;
@@ -15,6 +16,10 @@
 
     .font-lcd {
       font-family: 'JetBrains Mono', 'Courier New', monospace;
+    }
+
+    .font-mono-tech {
+      font-family: 'JetBrains Mono', monospace;
     }
 
     /* Ondulação sutil na superfície da água */
@@ -68,94 +73,107 @@
 <body class="min-h-screen pb-14">
 
   <!-- Cabeçalho Principal -->
-  <header class="bg-gradient-to-b from-[#1e293b] to-[#0f172a] border-b border-slate-700/80 px-4 py-8 text-center">
-    <div class="max-w-5xl mx-auto">
-      <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs sm:text-sm font-semibold mb-3">
-        <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
-        <span id="statusText">Online • Conectado ao HiveMQ (caixa_agua/bancada1)</span>
+  <header class="bg-gradient-to-b from-[#1e293b] to-[#0f172a] border-b border-slate-700/80 px-4 py-7 text-center">
+    <div class="max-w-6xl mx-auto">
+      <div id="statusBadge" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-semibold mb-3">
+        <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+        <span id="statusText">Conectando ao HiveMQ (wss://broker.hivemq.com:8884)...</span>
       </div>
       <h1 class="text-2xl sm:text-4xl font-extrabold tracking-tight text-white mb-2">
         Monitoramento IoT — Caixa d'Água
       </h1>
       <p class="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
-        Supervisório em tempo real integrado ao Arduino Uno, Sensor Ultrassônico HC-SR04, Setpoint Analógico, Display LCD I2C e Broker MQTT HiveMQ.
+        Supervisório industrial em tempo real sincronizado com as entradas e saídas do Arduino Uno via HiveMQ MQTT.
       </p>
     </div>
   </header>
 
   <main class="max-w-6xl mx-auto px-4 mt-6 space-y-6">
 
-    <!-- Barra Superior: Simulador Interativo ao Vivo + Configuração de Tópico -->
+    <!-- Barra de Conexão MQTT e Modo Demonstração -->
     <section class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-4 sm:p-5 shadow-xl">
-      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         
-        <!-- Sliders de Simulação Prática -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
-          <div class="bg-[#0f172a]/90 border border-slate-700/70 rounded-xl p-3.5">
-            <div class="flex justify-between items-center mb-2">
-              <label for="sliderNivel" class="text-xs font-bold uppercase tracking-wider text-sky-400">
-                Simular Nível do Sensor
-              </label>
-              <span id="labelSliderNivel" class="text-sm font-extrabold text-white bg-sky-500/20 px-2 py-0.5 rounded-md">
-                42%
-              </span>
-            </div>
-            <input type="range" id="sliderNivel" min="0" max="100" value="42" class="w-full" />
-          </div>
-
-          <div class="bg-[#0f172a]/90 border border-slate-700/70 rounded-xl p-3.5">
-            <div class="flex justify-between items-center mb-2">
-              <label for="sliderSetpoint" class="text-xs font-bold uppercase tracking-wider text-amber-400">
-                Simular Setpoint (Potenciômetro)
-              </label>
-              <span id="labelSliderSetpoint" class="text-sm font-extrabold text-white bg-amber-500/20 px-2 py-0.5 rounded-md">
-                60%
-              </span>
-            </div>
-            <input type="range" id="sliderSetpoint" min="15" max="85" value="60" class="w-full amber-thumb" />
-          </div>
-        </div>
-
-        <!-- Campo do Tópico MQTT -->
-        <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-2.5 lg:w-auto">
-          <div>
-            <label for="topicInput" class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-              Tópico Base MQTT
+        <!-- Configuração do Tópico Base -->
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 flex-1">
+          <div class="flex-1 max-w-md">
+            <label for="topicInput" class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Tópico Base MQTT (HiveMQ)
             </label>
             <input
               type="text"
               id="topicInput"
               value="caixa_agua/bancada1"
-              class="w-full sm:w-56 bg-[#0f172a] border border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-sky-400"
+              class="w-full bg-[#0f172a] border border-slate-600 rounded-xl px-3.5 py-2.5 text-sm font-mono-tech text-sky-300 focus:outline-none focus:border-sky-400"
             />
           </div>
           <button
-            onclick="aplicarTopico()"
+            onclick="conectarMQTT()"
             class="bg-sky-600 hover:bg-sky-500 active:scale-[0.98] text-white font-semibold text-sm px-4 py-2.5 rounded-xl transition cursor-pointer shadow-lg shadow-sky-900/30"
           >
-            Conectar Tópico
+            Reconectar HiveMQ
           </button>
         </div>
 
+        <!-- Botão de Alternância: Tempo Real vs. Demonstração Local -->
+        <div class="flex items-center justify-between sm:justify-end gap-3 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-700/70">
+          <span id="modoAtualLabel" class="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
+            Modo: Hardware Real (MQTT)
+          </span>
+          <button
+            id="btnToggleDemo"
+            onclick="alternarModoDemo()"
+            class="bg-slate-700 hover:bg-slate-600 active:scale-[0.98] text-slate-100 font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-slate-600 transition cursor-pointer"
+          >
+            Ativar Demo Local
+          </button>
+        </div>
+      </div>
+
+      <!-- Painel Oculto de Sliders (Aparece apenas se o Modo Demonstração Local for ativado) -->
+      <div id="painelDemo" class="hidden mt-4 pt-4 border-t border-slate-700/70 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="bg-[#0f172a]/90 border border-slate-700/70 rounded-xl p-3.5">
+          <div class="flex justify-between items-center mb-2">
+            <label for="sliderNivel" class="text-xs font-bold uppercase tracking-wider text-sky-400">
+              Simular Entrada Sensor HC-SR04
+            </label>
+            <span id="labelSliderNivel" class="text-xs font-mono-tech font-bold text-white bg-sky-500/20 px-2 py-0.5 rounded">
+              42%
+            </span>
+          </div>
+          <input type="range" id="sliderNivel" min="0" max="100" value="42" class="w-full" />
+        </div>
+
+        <div class="bg-[#0f172a]/90 border border-slate-700/70 rounded-xl p-3.5">
+          <div class="flex justify-between items-center mb-2">
+            <label for="sliderSetpoint" class="text-xs font-bold uppercase tracking-wider text-amber-400">
+              Simular Entrada Potenciômetro A0
+            </label>
+            <span id="labelSliderSetpoint" class="text-xs font-mono-tech font-bold text-white bg-amber-500/20 px-2 py-0.5 rounded">
+              60%
+            </span>
+          </div>
+          <input type="range" id="sliderSetpoint" min="15" max="85" value="60" class="w-full amber-thumb" />
+        </div>
       </div>
     </section>
 
-    <!-- Grid Principal do Dashboard (3 Cards) -->
+    <!-- Grid Principal do Dashboard (Entradas e Saídas em Tempo Real) -->
     <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
-      <!-- Card 1: Nível do Reservatório -->
+      <!-- Card 1: ENTRADAS DO ARDUINO (Sensor HC-SR04 + Potenciômetro A0) -->
       <div class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-6 shadow-xl flex flex-col justify-between">
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">
-            Nível do Reservatório
+          <h2 class="text-xs font-bold uppercase tracking-widest text-sky-400">
+            1. Entradas (Sensores)
           </h2>
-          <span class="text-xs text-slate-500 font-medium">Altura: 30 cm</span>
+          <span class="text-xs font-mono-tech text-slate-400">D9/D10 &bull; A0</span>
         </div>
 
         <div class="flex items-center justify-center gap-6 my-2">
           <!-- Tanque Gráfico Animado -->
           <div class="relative w-32 h-52 bg-[#0f172a] border-4 border-t-0 border-slate-500 rounded-b-2xl overflow-hidden shadow-inner">
-            <!-- Régua lateral de marcação -->
+            <!-- Régua lateral -->
             <div class="absolute inset-y-0 left-0 w-2.5 flex flex-col justify-between py-2 opacity-40 z-10 pointer-events-none">
               <span class="border-t border-slate-300 w-full"></span>
               <span class="border-t border-slate-300 w-2/3"></span>
@@ -164,57 +182,63 @@
               <span class="border-t border-slate-300 w-full"></span>
             </div>
 
-            <!-- Água Azul Preenchida -->
+            <!-- Água Azul -->
             <div
               id="waterFill"
               class="absolute bottom-0 left-0 w-full bg-gradient-to-t from-sky-700 via-sky-500 to-cyan-400 transition-all duration-300"
-              style="height: 42%;"
+              style="height: 0%;"
             >
               <div class="water-surface w-full h-2 bg-white/30"></div>
             </div>
 
-            <!-- Linha Tracejada Amarela de Setpoint -->
+            <!-- Linha Tracejada de Setpoint (Potenciômetro A0) -->
             <div
               id="setpointLine"
               class="absolute left-0 w-full border-t-2 border-dashed border-amber-400 z-20 transition-all duration-300"
-              style="bottom: 60%;"
+              style="bottom: 50%;"
             >
               <span
                 id="setpointTag"
-                class="absolute right-1 -top-5 bg-amber-400 text-slate-950 text-[10px] font-extrabold px-1.5 py-0.5 rounded shadow"
+                class="absolute right-1 -top-5 bg-amber-400 text-slate-950 text-[10px] font-mono-tech font-extrabold px-1.5 py-0.5 rounded shadow"
               >
-                SP: 60%
+                SP: --%
               </span>
             </div>
           </div>
 
-          <!-- Leituras Numéricas -->
-          <div class="space-y-1.5">
-            <div id="nivelTexto" class="text-5xl font-extrabold text-sky-400 tracking-tight">
-              42%
+          <!-- Variáveis de Entrada em Tempo Real -->
+          <div class="space-y-2">
+            <div>
+              <span class="text-[11px] uppercase tracking-wider text-slate-400 block">Nível HC-SR04</span>
+              <div id="nivelTexto" class="text-4xl sm:text-5xl font-mono-tech font-extrabold text-sky-400 tracking-tight">
+                --%
+              </div>
             </div>
-            <div id="setpointTexto" class="text-sm font-medium text-slate-300">
-              Setpoint Alvo: <span class="text-amber-400 font-bold">60%</span>
+            <div class="pt-1">
+              <span class="text-[11px] uppercase tracking-wider text-slate-400 block">Setpoint Pot. A0</span>
+              <div id="setpointTexto" class="text-lg font-mono-tech font-bold text-amber-400">
+                --%
+              </div>
             </div>
-            <div id="estadoTexto" class="pt-2 text-xs font-bold uppercase tracking-wider text-amber-400">
-              Enchendo Reservatório...
+            <div id="estadoTexto" class="pt-1 text-xs font-bold uppercase tracking-wider text-slate-400">
+              Aguardando leitura...
             </div>
           </div>
         </div>
 
-        <div class="mt-4 pt-3 border-t border-slate-700/60 flex justify-between text-xs text-slate-400">
-          <span>Filtro Mediana: 3 amostras</span>
-          <span id="distanciaSimulada">Distância: 17.4 cm</span>
+        <div class="mt-4 pt-3 border-t border-slate-700/60 flex justify-between text-xs font-mono-tech text-slate-400">
+          <span>Altura Caixa: 30.0 cm</span>
+          <span id="distanciaSimulada">Distância: --.- cm</span>
         </div>
       </div>
 
-      <!-- Card 2: Atuadores e Sinalização (LEDs e Bomba) -->
+      <!-- Card 2: SAÍDAS DO ARDUINO (Bomba + LED Verde D7 + LED Vermelho D8) -->
       <div class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-6 shadow-xl flex flex-col justify-between">
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">
-            Atuadores e Sinalização
+          <h2 class="text-xs font-bold uppercase tracking-widest text-emerald-400">
+            2. Saídas (Atuadores & LEDs)
           </h2>
-          <span class="text-xs text-slate-500 font-medium">Tempo Real</span>
+          <span class="text-xs font-mono-tech text-slate-400">D7 &bull; D8</span>
         </div>
 
         <div class="space-y-3.5 my-auto">
@@ -222,37 +246,37 @@
           <div class="bg-[#0f172a] border border-slate-700/80 rounded-xl p-4 flex items-center justify-between">
             <div>
               <div class="font-bold text-slate-100 text-sm">Bomba d'Água</div>
-              <div class="text-xs text-slate-400">Liga se Nível &lt; Setpoint</div>
+              <div class="text-xs text-slate-400">Controle automático por Setpoint</div>
             </div>
             <span
               id="bombaBadge"
-              class="px-3 py-1 rounded-lg text-xs font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+              class="px-3 py-1 rounded-lg text-xs font-mono-tech font-extrabold bg-slate-800 text-slate-400 border border-slate-700"
             >
-              LIGADA (ON)
+              AGUARDANDO
             </span>
           </div>
 
           <!-- LED Verde (Pino D7) -->
           <div class="bg-[#0f172a] border border-slate-700/80 rounded-xl p-4 flex items-center justify-between">
             <div>
-              <div class="font-bold text-slate-100 text-sm">LED Verde (Pino D7)</div>
-              <div id="descLedVerde" class="text-xs text-emerald-400 font-medium">Piscando • Bomba enchendo</div>
+              <div class="font-bold text-slate-100 text-sm">LED Verde <span class="font-mono-tech text-xs text-slate-400">(D7)</span></div>
+              <div id="descLedVerde" class="text-xs text-slate-400 font-medium">Aguardando sinal...</div>
             </div>
             <div
               id="ledVerde"
-              class="w-6 h-6 rounded-full bg-emerald-400 shadow-[0_0_16px_#34d399] led-blinking border-2 border-emerald-200"
+              class="w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-600 transition-all"
             ></div>
           </div>
 
           <!-- LED Vermelho (Pino D8) -->
           <div class="bg-[#0f172a] border border-slate-700/80 rounded-xl p-4 flex items-center justify-between">
             <div>
-              <div class="font-bold text-slate-100 text-sm">LED Vermelho (Pino D8)</div>
-              <div id="descLedVermelho" class="text-xs text-rose-400 font-medium">Aceso Fixo • Nível baixo</div>
+              <div class="font-bold text-slate-100 text-sm">LED Vermelho <span class="font-mono-tech text-xs text-slate-400">(D8)</span></div>
+              <div id="descLedVermelho" class="text-xs text-slate-400 font-medium">Aguardando sinal...</div>
             </div>
             <div
               id="ledVermelho"
-              class="w-6 h-6 rounded-full bg-rose-500 shadow-[0_0_16px_#f43f5e] border-2 border-rose-200"
+              class="w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-600 transition-all"
             ></div>
           </div>
         </div>
@@ -261,25 +285,25 @@
       <!-- Card 3: Display LCD 16x2 I2C Remoto -->
       <div class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-6 shadow-xl flex flex-col justify-between md:col-span-2 lg:col-span-1">
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">
-            Display LCD I2C (16x2)
+          <h2 class="text-xs font-bold uppercase tracking-widest text-amber-400">
+            3. Display LCD I2C (16x2)
           </h2>
-          <span class="text-xs text-slate-500 font-medium">End: 0x27</span>
+          <span class="text-xs font-mono-tech text-slate-400">A4/A5 (0x27)</span>
         </div>
 
         <div class="my-auto space-y-4">
           <!-- Moldura Física do Visor LCD Verde -->
           <div class="bg-[#052e16] p-3 rounded-xl border-2 border-slate-600 shadow-inner">
             <div class="bg-[#14532d] border border-emerald-900 rounded-lg px-4 py-3.5 shadow-[inset_0_2px_12px_rgba(0,0,0,0.65)]">
-              <pre id="lcdLinha0" class="font-lcd text-emerald-300 text-base sm:text-lg font-bold tracking-wider leading-snug">N: 42% SP:60% ON </pre>
-              <pre id="lcdLinha1" class="font-lcd text-emerald-300 text-base sm:text-lg font-bold tracking-wider leading-snug mt-1">[||||      ] BOM</pre>
+              <pre id="lcdLinha0" class="font-lcd text-emerald-300 text-base sm:text-lg font-bold tracking-wider leading-snug">N: --% SP:--% -- </pre>
+              <pre id="lcdLinha1" class="font-lcd text-emerald-300 text-base sm:text-lg font-bold tracking-wider leading-snug mt-1">[          ] ---</pre>
             </div>
           </div>
 
           <!-- Envio de Mensagem Remota ao LCD -->
           <div class="space-y-2">
             <label for="msgLcdInput" class="block text-xs font-semibold text-slate-400">
-              Enviar Mensagem Remota para a Linha 2 do LCD:
+              Escrever Mensagem Remota no LCD (via MQTT):
             </label>
             <div class="flex gap-2">
               <input
@@ -287,7 +311,7 @@
                 id="msgLcdInput"
                 maxlength="16"
                 placeholder="Ex: MANUTENCAO"
-                class="flex-1 bg-[#0f172a] border border-slate-600 rounded-xl px-3.5 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-400"
+                class="flex-1 bg-[#0f172a] border border-slate-600 rounded-xl px-3.5 py-2 text-sm font-mono-tech text-white placeholder-slate-500 focus:outline-none focus:border-sky-400"
               />
               <button
                 onclick="enviarMensagemLCD()"
@@ -299,17 +323,45 @@
                 onclick="limparLCD()"
                 class="bg-slate-700 hover:bg-slate-600 active:scale-[0.98] text-slate-200 font-semibold text-sm px-3.5 py-2 rounded-xl transition cursor-pointer"
               >
-                Limpar
+                LIMPAR
               </button>
             </div>
           </div>
         </div>
 
-        <div class="mt-4 pt-3 border-t border-slate-700/60 text-xs text-slate-400 flex justify-between">
-          <span>Tópico LCD: <code id="topicoLcdBadge" class="text-sky-400">caixa_agua/bancada1/lcd</code></span>
+        <div class="mt-4 pt-3 border-t border-slate-700/60 text-xs text-slate-400 flex justify-between items-center">
+          <span>Tópico Comando: <code id="topicoLcdBadge" class="font-mono-tech text-sky-400">caixa_agua/bancada1/lcd</code></span>
         </div>
       </div>
 
+    </section>
+
+    <!-- Monitor de Telemetria JSON I/O em Tempo Real -->
+    <section class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-6 shadow-xl">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+        <div class="flex items-center gap-2.5">
+          <span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
+          <h2 class="text-xs font-bold uppercase tracking-widest text-slate-300">
+            Monitor de Pacotes JSON em Tempo Real (Entradas & Saídas I/O)
+          </h2>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="contadorPacotes" class="text-xs font-mono-tech text-slate-400">Pacotes recebidos: 0</span>
+          <button
+            onclick="limparLog()"
+            class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-lg border border-slate-600 transition cursor-pointer"
+          >
+            Limpar Log
+          </button>
+        </div>
+      </div>
+
+      <div
+        id="consoleJson"
+        class="bg-[#090d16] border border-slate-700/80 rounded-xl p-4 h-40 overflow-y-auto font-mono-tech text-xs space-y-1.5 text-slate-300"
+      >
+        <div class="text-slate-500">[Sistema] Aguardando telemetria JSON do tópico <span class="text-sky-400">caixa_agua/bancada1/json</span>...</div>
+      </div>
     </section>
 
     <!-- Tabela de Arquitetura e Pinagem do Hardware -->
@@ -368,40 +420,135 @@
   </footer>
 
   <script>
+    let client = null;
+    let topicoBase = "caixa_agua/bancada1";
+    let modoDemo = false;
+    let mensagemRemota = "";
+    let totalPacotes = 0;
+
     const sliderNivel = document.getElementById("sliderNivel");
     const sliderSetpoint = document.getElementById("sliderSetpoint");
-    let mensagemRemota = "";
-    let bombaLigada = true;
 
-    function atualizarPainel() {
-      const nivel = parseInt(sliderNivel.value, 10);
-      const setpoint = parseInt(sliderSetpoint.value, 10);
+    function registrarLog(tipo, mensagem, corClasse = "text-slate-300") {
+      const consoleEl = document.getElementById("consoleJson");
+      const agora = new Date().toLocaleTimeString("pt-BR");
+      const linha = document.createElement("div");
+      linha.className = corClasse;
+      linha.innerHTML = `<span class="text-slate-500">[${agora}]</span> <span class="font-bold">${tipo}:</span> ${mensagem}`;
+      consoleEl.appendChild(linha);
 
-      // Atualiza labels dos sliders
-      document.getElementById("labelSliderNivel").textContent = `${nivel}%`;
-      document.getElementById("labelSliderSetpoint").textContent = `${setpoint}%`;
+      // Mantém no máximo 40 linhas no log para fluidez
+      while (consoleEl.children.length > 40) {
+        consoleEl.removeChild(consoleEl.firstChild);
+      }
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
 
-      // Lógica idêntica à do Arduino (com zona morta de 2% e transbordo >= 95%)
-      const transbordo = nivel >= 95;
-      if (transbordo) {
-        bombaLigada = false;
-      } else if (nivel < setpoint) {
-        bombaLigada = true;
-      } else if (nivel >= setpoint + 2) {
-        bombaLigada = false;
+    function limparLog() {
+      document.getElementById("consoleJson").innerHTML = "";
+      totalPacotes = 0;
+      document.getElementById("contadorPacotes").textContent = "Pacotes recebidos: 0";
+    }
+
+    function conectarMQTT() {
+      if (client) {
+        try {
+          client.end(true);
+        } catch (e) {}
       }
 
-      // Atualiza tanque visual e números
+      topicoBase = document.getElementById("topicInput").value.trim() || "caixa_agua/bancada1";
+      document.getElementById("topicoLcdBadge").textContent = `${topicoBase}/lcd`;
+
+      const badge = document.getElementById("statusBadge");
+      const dot = document.getElementById("statusDot");
+      const text = document.getElementById("statusText");
+
+      badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-semibold mb-3";
+      dot.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse";
+      text.textContent = `Conectando ao HiveMQ (${topicoBase})...`;
+
+      const clientId = "web_caixa_iot_" + Math.random().toString(16).substring(2, 10);
+
+      try {
+        client = mqtt.connect("wss://broker.hivemq.com:8884/mqtt", {
+          clientId: clientId,
+          clean: true,
+          reconnectPeriod: 3000
+        });
+      } catch (erro) {
+        // Ambiente de preview (Canvas) bloqueia WebSockets externos por política de sandbox
+        client = null;
+        badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs sm:text-sm font-semibold mb-3";
+        dot.className = "w-2.5 h-2.5 rounded-full bg-sky-400";
+        text.textContent = "Preview Local (WebSocket externo ativo no GitHub Pages)";
+
+        registrarLog(
+          "SANDBOX",
+          "O ambiente de preview bloqueia WebSockets externos. No GitHub Pages a conexão com wss://broker.hivemq.com:8884 funcionará automaticamente.",
+          "text-amber-300"
+        );
+
+        if (!modoDemo) {
+          alternarModoDemo();
+        }
+        return;
+      }
+
+      client.on("connect", () => {
+        badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs sm:text-sm font-semibold mb-3";
+        dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]";
+        text.textContent = `Conectado ao HiveMQ • Escutando ${topicoBase}/json`;
+
+        client.subscribe(`${topicoBase}/json`);
+        registrarLog("MQTT", `Inscrito em ${topicoBase}/json`, "text-emerald-400");
+      });
+
+      client.on("error", () => {
+        badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs sm:text-sm font-semibold mb-3";
+        dot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+        text.textContent = "Erro de conexão com o broker HiveMQ";
+      });
+
+      client.on("offline", () => {
+        badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-semibold mb-3";
+        dot.className = "w-2.5 h-2.5 rounded-full bg-amber-400";
+        text.textContent = "Desconectado do HiveMQ — Reconectando...";
+      });
+
+      client.on("message", (topic, payload) => {
+        if (modoDemo) return; // Ignora pacotes externos enquanto estiver testando manualmente no modo demo
+
+        const bruto = payload.toString();
+        try {
+          const dados = JSON.parse(bruto);
+          totalPacotes++;
+          document.getElementById("contadorPacotes").textContent = `Pacotes recebidos: ${totalPacotes}`;
+          registrarLog("IN (Arduino)", bruto, "text-sky-300");
+          atualizarInterface(dados);
+        } catch (e) {
+          registrarLog("ERRO JSON", bruto, "text-rose-400");
+        }
+      });
+    }
+
+    function atualizarInterface(dados) {
+      const nivel = Math.max(0, Math.min(100, Number(dados.nivel ?? 0)));
+      const setpoint = Math.max(0, Math.min(100, Number(dados.setpoint ?? 50)));
+      const bombaLigada = Boolean(dados.bomba);
+      const transbordo = nivel >= 95;
+
+      // Atualiza entradas (Tanque, Linha Setpoint e Distância em cm)
       document.getElementById("waterFill").style.height = `${nivel}%`;
       document.getElementById("setpointLine").style.bottom = `${setpoint}%`;
       document.getElementById("setpointTag").textContent = `SP: ${setpoint}%`;
       document.getElementById("nivelTexto").textContent = `${nivel}%`;
-      document.getElementById("setpointTexto").innerHTML = `Setpoint Alvo: <span class="text-amber-400 font-bold">${setpoint}%</span>`;
+      document.getElementById("setpointTexto").textContent = `${setpoint}%`;
 
       const distanciaCm = ((100 - nivel) * 0.30).toFixed(1);
       document.getElementById("distanciaSimulada").textContent = `Distância: ${distanciaCm} cm`;
 
-      // Referências dos elementos de status e LEDs
+      // Referências das saídas (Bomba + LEDs D7 e D8)
       const estadoTexto = document.getElementById("estadoTexto");
       const bombaBadge = document.getElementById("bombaBadge");
       const ledVerde = document.getElementById("ledVerde");
@@ -411,12 +558,11 @@
 
       if (transbordo) {
         estadoTexto.textContent = "ALERTA DE TRANSBORDO!";
-        estadoTexto.className = "pt-2 text-xs font-bold uppercase tracking-wider text-rose-500";
+        estadoTexto.className = "pt-1 text-xs font-bold uppercase tracking-wider text-rose-500";
 
         bombaBadge.textContent = "CORTADA (SEGURANÇA)";
-        bombaBadge.className = "px-3 py-1 rounded-lg text-xs font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+        bombaBadge.className = "px-3 py-1 rounded-lg text-xs font-mono-tech font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/30";
 
-        // Verde OFF, Vermelho PISCANDO
         ledVerde.className = "w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-600";
         descLedVerde.textContent = "Apagado • Bomba bloqueada";
         descLedVerde.className = "text-xs text-slate-400";
@@ -426,12 +572,11 @@
         descLedVermelho.className = "text-xs text-rose-400 font-semibold";
       } else if (bombaLigada) {
         estadoTexto.textContent = "Enchendo Reservatório...";
-        estadoTexto.className = "pt-2 text-xs font-bold uppercase tracking-wider text-amber-400";
+        estadoTexto.className = "pt-1 text-xs font-bold uppercase tracking-wider text-amber-400";
 
         bombaBadge.textContent = "LIGADA (ON)";
-        bombaBadge.className = "px-3 py-1 rounded-lg text-xs font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        bombaBadge.className = "px-3 py-1 rounded-lg text-xs font-mono-tech font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
 
-        // Verde PISCANDO, Vermelho FIXO
         ledVerde.className = "w-6 h-6 rounded-full bg-emerald-400 shadow-[0_0_16px_#34d399] led-blinking border-2 border-emerald-200";
         descLedVerde.textContent = "Piscando • Bomba enchendo";
         descLedVerde.className = "text-xs text-emerald-400 font-medium";
@@ -441,12 +586,11 @@
         descLedVermelho.className = "text-xs text-rose-400 font-medium";
       } else {
         estadoTexto.textContent = "Nível Estabilizado";
-        estadoTexto.className = "pt-2 text-xs font-bold uppercase tracking-wider text-emerald-400";
+        estadoTexto.className = "pt-1 text-xs font-bold uppercase tracking-wider text-emerald-400";
 
         bombaBadge.textContent = "DESLIGADA (OK)";
-        bombaBadge.className = "px-3 py-1 rounded-lg text-xs font-extrabold bg-slate-700/80 text-slate-300 border border-slate-600";
+        bombaBadge.className = "px-3 py-1 rounded-lg text-xs font-mono-tech font-extrabold bg-slate-700/80 text-slate-300 border border-slate-600";
 
-        // Verde FIXO, Vermelho OFF
         ledVerde.className = "w-6 h-6 rounded-full bg-emerald-400 shadow-[0_0_16px_#34d399] border-2 border-emerald-200";
         descLedVerde.textContent = "Aceso Fixo • Sistema normal";
         descLedVerde.className = "text-xs text-emerald-400 font-medium";
@@ -456,7 +600,7 @@
         descLedVermelho.className = "text-xs text-slate-400";
       }
 
-      // Atualiza Display LCD 16x2
+      // Atualiza espelho do Display LCD 16x2
       const statusCurto = transbordo ? "ERR" : (bombaLigada ? "ON " : "OK ");
       const linha0 = `N:${String(nivel).padStart(3, " ")}% SP:${String(setpoint).padStart(2, " ")}% ${statusCurto}`;
       document.getElementById("lcdLinha0").textContent = linha0;
@@ -475,32 +619,78 @@
     function enviarMensagemLCD() {
       const input = document.getElementById("msgLcdInput");
       const texto = input.value.trim();
-      if (texto) {
-        mensagemRemota = texto.substring(0, 16);
-        input.value = "";
-        atualizarPainel();
+      if (!texto) return;
+
+      mensagemRemota = texto.substring(0, 16);
+      input.value = "";
+
+      if (client && client.connected) {
+        client.publish(`${topicoBase}/lcd`, mensagemRemota);
+        registrarLog("OUT (LCD)", `Publicado '${mensagemRemota}' em ${topicoBase}/lcd`, "text-amber-400");
+      } else {
+        registrarLog("LOCAL (LCD)", `Exibido '${mensagemRemota}' (MQTT desconectado)`, "text-amber-400");
       }
+
+      if (modoDemo) simularDadosLocais();
     }
 
     function limparLCD() {
       mensagemRemota = "";
-      atualizarPainel();
+      if (client && client.connected) {
+        client.publish(`${topicoBase}/lcd`, "LIMPAR");
+        registrarLog("OUT (LCD)", `Publicado 'LIMPAR' em ${topicoBase}/lcd`, "text-amber-400");
+      }
+      if (modoDemo) simularDadosLocais();
     }
 
-    function aplicarTopico() {
-      const topico = document.getElementById("topicInput").value.trim() || "caixa_agua/bancada1";
-      document.getElementById("statusText").textContent = `Online • Conectado ao HiveMQ (${topico})`;
-      document.getElementById("topicoLcdBadge").textContent = `${topico}/lcd`;
+    function alternarModoDemo() {
+      modoDemo = !modoDemo;
+      const painelDemo = document.getElementById("painelDemo");
+      const btn = document.getElementById("btnToggleDemo");
+      const label = document.getElementById("modoAtualLabel");
+
+      if (modoDemo) {
+        painelDemo.classList.remove("hidden");
+        btn.textContent = "Voltar ao Tempo Real";
+        btn.className = "bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-xl transition cursor-pointer";
+        label.textContent = "Modo: Demonstração Local";
+        label.className = "text-xs font-semibold text-amber-400 uppercase tracking-wider";
+        registrarLog("SISTEMA", "Modo Demonstração Local ativado (sliders habilitados).", "text-amber-300");
+        simularDadosLocais();
+      } else {
+        painelDemo.classList.add("hidden");
+        btn.textContent = "Ativar Demo Local";
+        btn.className = "bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-slate-600 transition cursor-pointer";
+        label.textContent = "Modo: Hardware Real (MQTT)";
+        label.className = "text-xs font-semibold text-emerald-400 uppercase tracking-wider";
+        registrarLog("SISTEMA", "Retornado ao modo Tempo Real via HiveMQ.", "text-emerald-400");
+      }
     }
 
-    sliderNivel.addEventListener("input", atualizarPainel);
-    sliderSetpoint.addEventListener("input", atualizarPainel);
+    function simularDadosLocais() {
+      const nivel = parseInt(sliderNivel.value, 10);
+      const setpoint = parseInt(sliderSetpoint.value, 10);
+      document.getElementById("labelSliderNivel").textContent = `${nivel}%`;
+      document.getElementById("labelSliderSetpoint").textContent = `${setpoint}%`;
+
+      const bomba = nivel < 95 && nivel < setpoint;
+      const pacoteSimulado = { nivel, setpoint, bomba, alerta: bomba || nivel >= 95 };
+
+      totalPacotes++;
+      document.getElementById("contadorPacotes").textContent = `Pacotes simulados: ${totalPacotes}`;
+      registrarLog("DEMO (I/O)", JSON.stringify(pacoteSimulado), "text-sky-300");
+
+      atualizarInterface(pacoteSimulado);
+    }
+
+    sliderNivel.addEventListener("input", simularDadosLocais);
+    sliderSetpoint.addEventListener("input", simularDadosLocais);
     document.getElementById("msgLcdInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter") enviarMensagemLCD();
     });
 
-    // Inicializa estado padrão
-    atualizarPainel();
+    // Inicia conectado diretamente ao HiveMQ ao carregar a página
+    window.addEventListener("load", conectarMQTT);
   </script>
 </body>
 </html>
