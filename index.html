@@ -1,696 +1,882 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoramento IoT — Caixa d'Água Inteligente</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>alisson_reservatorio/telemetria — SCADA IoT</title>
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <!-- Fontes Inter e JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg: #070b14;
+      --panel: #0f172a;
+      --panel-light: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --cyan: #06b6d4;
+      --blue: #0284c7;
+      --green: #10b981;
+      --amber: #f59e0b;
+      --red: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
     body {
-      font-family: 'Inter', sans-serif;
-      background-color: #0f172a;
-      color: #f8fafc;
+      background: radial-gradient(circle at top, #0f172a 0%, #05080f 100%);
+      color: var(--text);
+      min-height: 100vh;
+      margin: 0;
     }
 
-    .font-lcd {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
-    }
-
-    .font-mono-tech {
+    .mono {
       font-family: 'JetBrains Mono', monospace;
     }
 
-    /* Ondulação sutil na superfície da água */
-    @keyframes waveFloat {
-      0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-3px); }
+    /* LED pulsante de status online */
+    .led-online {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 10px var(--green), 0 0 4px var(--green);
+      animation: pulseLed 2s infinite;
     }
 
-    .water-surface {
-      animation: waveFloat 2.4s ease-in-out infinite;
+    @keyframes pulseLed {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.65; transform: scale(1.15); }
     }
 
-    /* Efeito de pisca dos LEDs físicos da bancada */
-    @keyframes ledBlinkFast {
-      0%, 49% { opacity: 1; transform: scale(1.06); }
-      50%, 100% { opacity: 0.25; transform: scale(0.96); }
+    /* Corpo do Reservatório */
+    .tank-body {
+      width: 195px;
+      height: 270px;
+      border: 3px solid #475569;
+      border-top: 2px dashed #475569;
+      border-radius: 8px 8px 22px 22px;
+      background: linear-gradient(90deg, #060a12 0%, #0d1526 50%, #060a12 100%);
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 0 28px rgba(0, 0, 0, 0.95);
     }
 
-    .led-blinking {
-      animation: ledBlinkFast 0.5s infinite;
+    /* Massa de água com transição suave */
+    .water-mass {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 42%;
+      background: linear-gradient(180deg, rgba(6, 182, 212, 0.88) 0%, rgba(2, 132, 199, 0.96) 100%);
+      transition: height 0.55s cubic-bezier(0.22, 1, 0.36, 1), background 0.35s ease;
     }
 
-    /* Estilização customizada dos sliders */
+    .water-mass.danger {
+      background: linear-gradient(180deg, rgba(248, 113, 113, 0.92) 0%, rgba(220, 38, 38, 0.96) 100%);
+    }
+
+    /* Ondas duplas animadas na superfície */
+    .wave {
+      position: absolute;
+      top: -12px;
+      left: 0;
+      width: 200%;
+      height: 15px;
+      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 88.7'%3E%3Cpath d='M800 56.9c-155.5 0-204.9-50-405.5-49.9-200 0-250 49.9-394.5 49.9v31.8h800v-.2-31.6z' fill='%2322d3ee'/%3E%3C/svg%3E");
+      background-size: 50% 100%;
+      animation: waveMove 3.8s linear infinite;
+      opacity: 0.78;
+    }
+
+    .wave-back {
+      top: -9px;
+      opacity: 0.4;
+      animation: waveMove 6s linear infinite reverse;
+    }
+
+    .water-mass.danger .wave,
+    .water-mass.danger .wave-back {
+      filter: hue-rotate(155deg) saturate(1.3);
+    }
+
+    @keyframes waveMove {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    /* Bolhas subindo quando a bomba opera */
+    .bubbles {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: none;
+    }
+
+    .bubbles.active {
+      display: block;
+    }
+
+    .bubble {
+      position: absolute;
+      bottom: 6px;
+      width: 6px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.55);
+      border-radius: 50%;
+      animation: riseBubble 1.9s infinite ease-in;
+    }
+
+    .bubble:nth-child(1) { left: 22%; animation-delay: 0s; }
+    .bubble:nth-child(2) { left: 48%; animation-delay: 0.55s; width: 8px; height: 8px; }
+    .bubble:nth-child(3) { left: 74%; animation-delay: 1.05s; }
+    .bubble:nth-child(4) { left: 36%; animation-delay: 1.45s; width: 5px; height: 5px; }
+
+    @keyframes riseBubble {
+      0% { transform: translateY(0) scale(0.8); opacity: 0.85; }
+      100% { transform: translateY(-210px) scale(1.35); opacity: 0; }
+    }
+
+    /* Linha do Setpoint */
+    .sp-marker {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      bottom: 65%;
+      border-top: 2px dashed var(--amber);
+      z-index: 15;
+      transition: bottom 0.35s ease;
+      pointer-events: none;
+    }
+
+    .sp-badge {
+      position: absolute;
+      right: 6px;
+      top: -21px;
+      background: var(--amber);
+      color: #05080f;
+      font-weight: 800;
+      font-size: 0.7rem;
+      padding: 1px 6px;
+      border-radius: 4px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+    }
+
+    /* Turbina (Impeller) */
+    .impeller {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 3px solid #475569;
+      display: grid;
+      place-items: center;
+      background: #1e293b;
+      transition: border-color 0.3s, box-shadow 0.3s;
+      flex-shrink: 0;
+    }
+
+    .impeller.running {
+      border-color: var(--green);
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.55);
+    }
+
+    .impeller svg {
+      width: 22px;
+      height: 22px;
+      fill: var(--muted);
+      transition: fill 0.3s;
+    }
+
+    .impeller.running svg {
+      fill: var(--green);
+      animation: spinTurbine 0.65s linear infinite;
+    }
+
+    @keyframes spinTurbine {
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Cano com fluxo animado */
+    .pipe-flow {
+      flex: 1;
+      height: 10px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 999px;
+      margin: 0 12px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .pipe-flow.running::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        90deg,
+        var(--cyan) 0px,
+        var(--cyan) 12px,
+        transparent 12px,
+        transparent 24px
+      );
+      background-size: 24px 100%;
+      animation: flowPipe 0.45s linear infinite;
+    }
+
+    @keyframes flowPipe {
+      0% { background-position: 0 0; }
+      100% { background-position: 24px 0; }
+    }
+
+    /* Sliders customizados */
     input[type="range"] {
       -webkit-appearance: none;
       appearance: none;
-      background: #0f172a;
-      height: 8px;
-      border-radius: 999px;
+      width: 100%;
+      height: 6px;
+      background: #070b14;
       border: 1px solid #334155;
+      border-radius: 999px;
+      outline: none;
     }
 
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 20px;
-      height: 20px;
+      width: 16px;
+      height: 16px;
       border-radius: 50%;
-      background: #38bdf8;
+      background: var(--cyan);
+      border: 2px solid #0f172a;
       cursor: pointer;
-      border: 2px solid #f8fafc;
-      box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+      box-shadow: 0 0 8px rgba(6, 182, 212, 0.7);
     }
 
-    input[type="range"].amber-thumb::-webkit-slider-thumb {
-      background: #f59e0b;
-      box-shadow: 0 0 10px rgba(245, 158, 11, 0.6);
+    input[type="range"]#sliderSetpoint::-webkit-slider-thumb {
+      background: var(--amber);
+      box-shadow: 0 0 8px rgba(245, 158, 11, 0.7);
+    }
+
+    /* Scrollbar discreta */
+    .terminal-scroll::-webkit-scrollbar {
+      width: 6px;
+    }
+    .terminal-scroll::-webkit-scrollbar-track {
+      background: #05080f;
+    }
+    .terminal-scroll::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
     }
   </style>
 </head>
-<body class="min-h-screen pb-14">
+<body class="p-3 sm:p-5 flex justify-center">
 
-  <!-- Cabeçalho Principal -->
-  <header class="bg-gradient-to-b from-[#1e293b] to-[#0f172a] border-b border-slate-700/80 px-4 py-7 text-center">
-    <div class="max-w-6xl mx-auto">
-      <div id="statusBadge" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-semibold mb-3">
-        <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
-        <span id="statusText">Conectando ao HiveMQ (wss://broker.hivemq.com:8884)...</span>
-      </div>
-      <h1 class="text-2xl sm:text-4xl font-extrabold tracking-tight text-white mb-2">
-        Monitoramento IoT — Caixa d'Água
-      </h1>
-      <p class="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
-        Supervisório industrial em tempo real sincronizado com as entradas e saídas do Arduino Uno via HiveMQ MQTT.
-      </p>
-    </div>
-  </header>
+  <div class="w-full max-w-[1120px] flex flex-col gap-4">
 
-  <main class="max-w-6xl mx-auto px-4 mt-6 space-y-6">
-
-    <!-- Barra de Conexão MQTT e Modo Demonstração -->
-    <section class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-4 sm:p-5 shadow-xl">
-      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        
-        <!-- Configuração do Tópico Base -->
-        <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 flex-1">
-          <div class="flex-1 max-w-md">
-            <label for="topicInput" class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Tópico Base MQTT (HiveMQ)
-            </label>
-            <input
-              type="text"
-              id="topicInput"
-              value="caixa_agua/bancada1"
-              class="w-full bg-[#0f172a] border border-slate-600 rounded-xl px-3.5 py-2.5 text-sm font-mono-tech text-sky-300 focus:outline-none focus:border-sky-400"
-            />
-          </div>
-          <button
-            onclick="conectarMQTT()"
-            class="bg-sky-600 hover:bg-sky-500 active:scale-[0.98] text-white font-semibold text-sm px-4 py-2.5 rounded-xl transition cursor-pointer shadow-lg shadow-sky-900/30"
-          >
-            Reconectar HiveMQ
-          </button>
+    <!-- 1. TOPBAR INDUSTRIAL -->
+    <header class="bg-[#0f172a] border border-[#334155] rounded-2xl px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+      <div class="flex items-center gap-3.5">
+        <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-[#06b6d4] to-[#0284c7] flex items-center justify-center font-black text-lg text-white shadow-[0_0_16px_rgba(6,182,212,0.45)] select-none">
+          IoT
         </div>
+        <div>
+          <h1 class="mono text-base sm:text-lg font-bold tracking-wide text-white break-all">
+            alisson_reservatorio/telemetria
+          </h1>
+          <p class="text-xs text-[#94a3b8]">
+            Sistema Supervisório SCADA &bull; HiveMQ Cloud Broker
+          </p>
+        </div>
+      </div>
 
-        <!-- Botão de Alternância: Tempo Real vs. Demonstração Local -->
-        <div class="flex items-center justify-between sm:justify-end gap-3 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-700/70">
-          <span id="modoAtualLabel" class="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
-            Modo: Hardware Real (MQTT)
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <button
+          id="btnSom"
+          type="button"
+          onclick="alternarSom()"
+          class="bg-[#1e293b] hover:border-[#06b6d4] border border-[#334155] text-[#f1f5f9] px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer"
+        >
+          🔊 Som: ON
+        </button>
+        <div class="bg-[#090e1a] border border-[#334155] px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2">
+          <span class="led-online" id="mqttLed"></span>
+          <span id="mqttText" class="text-[#f1f5f9]">Online (Simulação Bancada / HiveMQ)</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- GRID PRINCIPAL: ESQUERDA (TANQUE) + DIREITA (KPIs, GRÁFICO, COMANDO) -->
+    <div class="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-4">
+
+      <!-- 2. COLUNA ESQUERDA: RESERVATÓRIO PRINCIPAL -->
+      <section class="bg-[#0f172a] border border-[#334155] rounded-2xl p-5 flex flex-col justify-between shadow-xl">
+        <div class="flex items-center justify-between pb-2.5 mb-4 border-b border-[#334155]/60">
+          <span class="text-xs font-bold uppercase tracking-widest text-[#94a3b8]">
+            Reservatório Principal
           </span>
+          <span id="lastUpdate" class="mono text-[11px] text-[#06b6d4]">
+            Atualizado: --:--:--
+          </span>
+        </div>
+
+        <div class="flex flex-col items-center my-1">
+          <!-- Tanque + Régua Lateral -->
+          <div class="flex items-end">
+            <div class="h-[270px] flex flex-col justify-between pr-2.5 mono text-[11px] text-[#94a3b8] text-right select-none">
+              <span>100%</span>
+              <span>75%</span>
+              <span>50%</span>
+              <span>25%</span>
+              <span>0%</span>
+            </div>
+
+            <div class="tank-body">
+              <!-- Massa de Água -->
+              <div class="water-mass" id="waterMass" style="height: 42%;">
+                <div class="wave"></div>
+                <div class="wave wave-back"></div>
+                <div class="bubbles active" id="bubbles">
+                  <div class="bubble"></div>
+                  <div class="bubble"></div>
+                  <div class="bubble"></div>
+                  <div class="bubble"></div>
+                </div>
+              </div>
+
+              <!-- Linha do Setpoint -->
+              <div class="sp-marker" id="spMarker" style="bottom: 65%;">
+                <span class="sp-badge mono" id="spBadge">SP: 65%</span>
+              </div>
+
+              <!-- Leitura Digital Central -->
+              <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none select-none">
+                <div class="mono text-4xl sm:text-[2.75rem] font-extrabold text-white drop-shadow-[0_3px_12px_rgba(0,0,0,0.95)]" id="pctText">
+                  42%
+                </div>
+                <div class="mono text-xs bg-black/65 border border-white/10 px-2.5 py-0.5 rounded-md text-[#e2e8f0] mt-1" id="litrosText">
+                  420 L / 1000 L
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sistema Hidráulico & Bomba -->
+          <div class="w-full mt-5 bg-[#090e1a] border border-[#334155] rounded-xl px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="impeller running" id="impeller">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1.27c.34-.6.99-1 1.73-1a2 2 0 1 1 0 4c-.74 0-1.39-.4-1.73-1H21a7 7 0 0 1-7 7v1.27c.6.34 1 .99 1 1.73a2 2 0 1 1-4 0c0-.74.4-1.39 1-1.73V23a7 7 0 0 1-7-7H3.73c-.34.6-.99 1-1.73 1a2 2 0 1 1 0-4c.74 0 1.39.4 1.73 1H5a7 7 0 0 1 7-7V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="text-[11px] font-semibold text-[#94a3b8]">BOMBA PINO 6</div>
+                <div class="text-sm font-bold text-[#10b981]" id="pumpLabel">OPERANDO</div>
+              </div>
+            </div>
+
+            <div class="pipe-flow running" id="pipeFlow"></div>
+
+            <div class="text-right shrink-0">
+              <div class="text-[10px] font-semibold text-[#94a3b8]">VAZÃO</div>
+              <div class="mono text-xs sm:text-sm font-bold text-[#06b6d4]" id="flowRate">18.5 L/m</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. COLUNA DIREITA: KPIs, GRÁFICO CANVAS, COMANDOS E LOGS -->
+      <div class="flex flex-col gap-4">
+
+        <!-- 4 KPIs -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="bg-[#090e1a] border border-[#334155] rounded-xl p-3.5">
+            <div class="text-[11px] font-semibold uppercase text-[#94a3b8]">Bomba</div>
+            <div class="mono text-lg font-extrabold text-[#10b981] mt-1" id="kpiBomba">LIGADA</div>
+          </div>
+          <div class="bg-[#090e1a] border border-[#334155] rounded-xl p-3.5">
+            <div class="text-[11px] font-semibold uppercase text-[#94a3b8]">Setpoint</div>
+            <div class="mono text-lg font-extrabold text-[#f59e0b] mt-1" id="kpiSetpoint">65%</div>
+          </div>
+          <div class="bg-[#090e1a] border border-[#334155] rounded-xl p-3.5">
+            <div class="text-[11px] font-semibold uppercase text-[#94a3b8]">Sensor HC-SR04</div>
+            <div class="mono text-lg font-extrabold text-[#10b981] mt-1" id="kpiSensor">ONLINE</div>
+          </div>
+          <div class="bg-[#090e1a] border border-[#334155] rounded-xl p-3.5">
+            <div class="text-[11px] font-semibold uppercase text-[#94a3b8]">Diagnóstico</div>
+            <div class="mono text-lg font-extrabold text-[#10b981] mt-1" id="kpiAlerta">NORMAL</div>
+          </div>
+        </div>
+
+        <!-- Gráfico de Histórico em Tempo Real (Canvas Nativo) -->
+        <section class="bg-[#0f172a] border border-[#334155] rounded-2xl p-4 shadow-xl">
+          <div class="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-[#334155]/60">
+            <span class="text-xs font-bold uppercase tracking-widest text-[#94a3b8]">
+              Histórico de Nível vs Setpoint (Tempo Real)
+            </span>
+            <div class="flex items-center gap-4 text-xs font-semibold">
+              <span class="text-[#06b6d4]">&#9632; Nível (%)</span>
+              <span class="text-[#f59e0b]">&#9644; Setpoint (%)</span>
+            </div>
+          </div>
+          <div class="w-full h-[160px] bg-[#070b14] border border-[#334155] rounded-xl overflow-hidden">
+            <canvas id="trendChart" class="w-full h-full block"></canvas>
+          </div>
+        </section>
+
+        <!-- Botões Industriais + Terminal de Logs -->
+        <section class="bg-[#0f172a] border border-[#334155] rounded-2xl p-4 shadow-xl">
+          <div class="pb-2.5 mb-3 border-b border-[#334155]/60">
+            <span class="text-xs font-bold uppercase tracking-widest text-[#94a3b8]">
+              Comando Remoto (Tópico: alisson_reservatorio/comando)
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              id="btnLigar"
+              type="button"
+              onclick="enviarComando('1')"
+              class="py-3.5 px-4 rounded-xl font-extrabold text-sm tracking-wide text-[#022c22] bg-gradient-to-b from-[#10b981] to-[#059669] hover:brightness-110 active:translate-y-0.5 shadow-[0_4px_15px_rgba(16,185,129,0.3)] transition cursor-pointer flex items-center justify-center gap-2"
+            >
+              &#9654; LIGAR BOMBA (1)
+            </button>
+            <button
+              id="btnDesligar"
+              type="button"
+              onclick="enviarComando('0')"
+              class="py-3.5 px-4 rounded-xl font-extrabold text-sm tracking-wide text-white bg-gradient-to-b from-[#ef4444] to-[#b91c1c] hover:brightness-110 active:translate-y-0.5 shadow-[0_4px_15px_rgba(239,68,68,0.3)] transition cursor-pointer flex items-center justify-center gap-2"
+            >
+              &#9632; DESLIGAR BOMBA (0)
+            </button>
+          </div>
+
+          <!-- Terminal de Logs -->
+          <div
+            id="terminal"
+            class="terminal-scroll mono mt-3.5 bg-[#05080f] border border-[#334155] rounded-xl p-3 text-xs h-[120px] overflow-y-auto text-[#94a3b8] leading-relaxed"
+          ></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 4. BARRA DISCRETA DE SIMULADOR DE BANCADA (TESTE INTERATIVO) -->
+    <footer class="bg-[#0f172a]/90 border border-[#334155] rounded-2xl px-4 sm:px-5 py-3.5 shadow-lg">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="w-2 h-2 rounded-full bg-[#06b6d4]"></span>
+          <span class="text-xs font-bold uppercase tracking-wider text-[#94a3b8]">
+            Simulador de Bancada (Teste Interativo)
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto_auto] items-center gap-4 flex-1">
+          <!-- Slider Nível -->
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-[11px] font-semibold">
+              <span class="text-[#94a3b8]">Nível HC-SR04</span>
+              <span id="lblSimNivel" class="mono text-[#06b6d4]">42%</span>
+            </div>
+            <input id="sliderNivel" type="range" min="0" max="100" value="42" oninput="alterarNivelManual(this.value)">
+          </div>
+
+          <!-- Slider Setpoint -->
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-[11px] font-semibold">
+              <span class="text-[#94a3b8]">Potenciômetro (Setpoint)</span>
+              <span id="lblSimSetpoint" class="mono text-[#f59e0b]">65%</span>
+            </div>
+            <input id="sliderSetpoint" type="range" min="15" max="85" value="65" oninput="alterarSetpointManual(this.value)">
+          </div>
+
+          <!-- Toggle Modo Automático -->
+          <label class="flex items-center gap-2 text-xs font-semibold text-[#f1f5f9] bg-[#090e1a] border border-[#334155] px-3 py-2 rounded-xl cursor-pointer select-none">
+            <input id="chkAuto" type="checkbox" checked class="accent-[#10b981] w-3.5 h-3.5 cursor-pointer">
+            <span>Auto-Enchimento</span>
+          </label>
+
+          <!-- Botão Falha no Sensor HC-SR04 -->
           <button
-            id="btnToggleDemo"
-            onclick="alternarModoDemo()"
-            class="bg-slate-700 hover:bg-slate-600 active:scale-[0.98] text-slate-100 font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-slate-600 transition cursor-pointer"
+            id="btnFalhaSensor"
+            type="button"
+            onclick="alternarFalhaSensor()"
+            class="px-3.5 py-2 rounded-xl text-xs font-bold border border-[#334155] bg-[#1e293b] text-[#f1f5f9] hover:border-[#ef4444] transition cursor-pointer whitespace-nowrap"
           >
-            Ativar Demo Local
+            Simular Falha Sensor
           </button>
         </div>
       </div>
+    </footer>
 
-      <!-- Painel Oculto de Sliders (Aparece apenas se o Modo Demonstração Local for ativado) -->
-      <div id="painelDemo" class="hidden mt-4 pt-4 border-t border-slate-700/70 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="bg-[#0f172a]/90 border border-slate-700/70 rounded-xl p-3.5">
-          <div class="flex justify-between items-center mb-2">
-            <label for="sliderNivel" class="text-xs font-bold uppercase tracking-wider text-sky-400">
-              Simular Entrada Sensor HC-SR04
-            </label>
-            <span id="labelSliderNivel" class="text-xs font-mono-tech font-bold text-white bg-sky-500/20 px-2 py-0.5 rounded">
-              42%
-            </span>
-          </div>
-          <input type="range" id="sliderNivel" min="0" max="100" value="42" class="w-full" />
-        </div>
-
-        <div class="bg-[#0f172a]/90 border border-slate-700/70 rounded-xl p-3.5">
-          <div class="flex justify-between items-center mb-2">
-            <label for="sliderSetpoint" class="text-xs font-bold uppercase tracking-wider text-amber-400">
-              Simular Entrada Potenciômetro A0
-            </label>
-            <span id="labelSliderSetpoint" class="text-xs font-mono-tech font-bold text-white bg-amber-500/20 px-2 py-0.5 rounded">
-              60%
-            </span>
-          </div>
-          <input type="range" id="sliderSetpoint" min="15" max="85" value="60" class="w-full amber-thumb" />
-        </div>
-      </div>
-    </section>
-
-    <!-- Grid Principal do Dashboard (Entradas e Saídas em Tempo Real) -->
-    <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-
-      <!-- Card 1: ENTRADAS DO ARDUINO (Sensor HC-SR04 + Potenciômetro A0) -->
-      <div class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-6 shadow-xl flex flex-col justify-between">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xs font-bold uppercase tracking-widest text-sky-400">
-            1. Entradas (Sensores)
-          </h2>
-          <span class="text-xs font-mono-tech text-slate-400">D9/D10 &bull; A0</span>
-        </div>
-
-        <div class="flex items-center justify-center gap-6 my-2">
-          <!-- Tanque Gráfico Animado -->
-          <div class="relative w-32 h-52 bg-[#0f172a] border-4 border-t-0 border-slate-500 rounded-b-2xl overflow-hidden shadow-inner">
-            <!-- Régua lateral -->
-            <div class="absolute inset-y-0 left-0 w-2.5 flex flex-col justify-between py-2 opacity-40 z-10 pointer-events-none">
-              <span class="border-t border-slate-300 w-full"></span>
-              <span class="border-t border-slate-300 w-2/3"></span>
-              <span class="border-t border-slate-300 w-full"></span>
-              <span class="border-t border-slate-300 w-2/3"></span>
-              <span class="border-t border-slate-300 w-full"></span>
-            </div>
-
-            <!-- Água Azul -->
-            <div
-              id="waterFill"
-              class="absolute bottom-0 left-0 w-full bg-gradient-to-t from-sky-700 via-sky-500 to-cyan-400 transition-all duration-300"
-              style="height: 0%;"
-            >
-              <div class="water-surface w-full h-2 bg-white/30"></div>
-            </div>
-
-            <!-- Linha Tracejada de Setpoint (Potenciômetro A0) -->
-            <div
-              id="setpointLine"
-              class="absolute left-0 w-full border-t-2 border-dashed border-amber-400 z-20 transition-all duration-300"
-              style="bottom: 50%;"
-            >
-              <span
-                id="setpointTag"
-                class="absolute right-1 -top-5 bg-amber-400 text-slate-950 text-[10px] font-mono-tech font-extrabold px-1.5 py-0.5 rounded shadow"
-              >
-                SP: --%
-              </span>
-            </div>
-          </div>
-
-          <!-- Variáveis de Entrada em Tempo Real -->
-          <div class="space-y-2">
-            <div>
-              <span class="text-[11px] uppercase tracking-wider text-slate-400 block">Nível HC-SR04</span>
-              <div id="nivelTexto" class="text-4xl sm:text-5xl font-mono-tech font-extrabold text-sky-400 tracking-tight">
-                --%
-              </div>
-            </div>
-            <div class="pt-1">
-              <span class="text-[11px] uppercase tracking-wider text-slate-400 block">Setpoint Pot. A0</span>
-              <div id="setpointTexto" class="text-lg font-mono-tech font-bold text-amber-400">
-                --%
-              </div>
-            </div>
-            <div id="estadoTexto" class="pt-1 text-xs font-bold uppercase tracking-wider text-slate-400">
-              Aguardando leitura...
-            </div>
-          </div>
-        </div>
-
-        <div class="mt-4 pt-3 border-t border-slate-700/60 flex justify-between text-xs font-mono-tech text-slate-400">
-          <span>Altura Caixa: 30.0 cm</span>
-          <span id="distanciaSimulada">Distância: --.- cm</span>
-        </div>
-      </div>
-
-      <!-- Card 2: SAÍDAS DO ARDUINO (Bomba + LED Verde D7 + LED Vermelho D8) -->
-      <div class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-6 shadow-xl flex flex-col justify-between">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xs font-bold uppercase tracking-widest text-emerald-400">
-            2. Saídas (Atuadores & LEDs)
-          </h2>
-          <span class="text-xs font-mono-tech text-slate-400">D7 &bull; D8</span>
-        </div>
-
-        <div class="space-y-3.5 my-auto">
-          <!-- Status da Bomba -->
-          <div class="bg-[#0f172a] border border-slate-700/80 rounded-xl p-4 flex items-center justify-between">
-            <div>
-              <div class="font-bold text-slate-100 text-sm">Bomba d'Água</div>
-              <div class="text-xs text-slate-400">Controle automático por Setpoint</div>
-            </div>
-            <span
-              id="bombaBadge"
-              class="px-3 py-1 rounded-lg text-xs font-mono-tech font-extrabold bg-slate-800 text-slate-400 border border-slate-700"
-            >
-              AGUARDANDO
-            </span>
-          </div>
-
-          <!-- LED Verde (Pino D7) -->
-          <div class="bg-[#0f172a] border border-slate-700/80 rounded-xl p-4 flex items-center justify-between">
-            <div>
-              <div class="font-bold text-slate-100 text-sm">LED Verde <span class="font-mono-tech text-xs text-slate-400">(D7)</span></div>
-              <div id="descLedVerde" class="text-xs text-slate-400 font-medium">Aguardando sinal...</div>
-            </div>
-            <div
-              id="ledVerde"
-              class="w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-600 transition-all"
-            ></div>
-          </div>
-
-          <!-- LED Vermelho (Pino D8) -->
-          <div class="bg-[#0f172a] border border-slate-700/80 rounded-xl p-4 flex items-center justify-between">
-            <div>
-              <div class="font-bold text-slate-100 text-sm">LED Vermelho <span class="font-mono-tech text-xs text-slate-400">(D8)</span></div>
-              <div id="descLedVermelho" class="text-xs text-slate-400 font-medium">Aguardando sinal...</div>
-            </div>
-            <div
-              id="ledVermelho"
-              class="w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-600 transition-all"
-            ></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Card 3: Display LCD 16x2 I2C Remoto -->
-      <div class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-6 shadow-xl flex flex-col justify-between md:col-span-2 lg:col-span-1">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xs font-bold uppercase tracking-widest text-amber-400">
-            3. Display LCD I2C (16x2)
-          </h2>
-          <span class="text-xs font-mono-tech text-slate-400">A4/A5 (0x27)</span>
-        </div>
-
-        <div class="my-auto space-y-4">
-          <!-- Moldura Física do Visor LCD Verde -->
-          <div class="bg-[#052e16] p-3 rounded-xl border-2 border-slate-600 shadow-inner">
-            <div class="bg-[#14532d] border border-emerald-900 rounded-lg px-4 py-3.5 shadow-[inset_0_2px_12px_rgba(0,0,0,0.65)]">
-              <pre id="lcdLinha0" class="font-lcd text-emerald-300 text-base sm:text-lg font-bold tracking-wider leading-snug">N: --% SP:--% -- </pre>
-              <pre id="lcdLinha1" class="font-lcd text-emerald-300 text-base sm:text-lg font-bold tracking-wider leading-snug mt-1">[          ] ---</pre>
-            </div>
-          </div>
-
-          <!-- Envio de Mensagem Remota ao LCD -->
-          <div class="space-y-2">
-            <label for="msgLcdInput" class="block text-xs font-semibold text-slate-400">
-              Escrever Mensagem Remota no LCD (via MQTT):
-            </label>
-            <div class="flex gap-2">
-              <input
-                type="text"
-                id="msgLcdInput"
-                maxlength="16"
-                placeholder="Ex: MANUTENCAO"
-                class="flex-1 bg-[#0f172a] border border-slate-600 rounded-xl px-3.5 py-2 text-sm font-mono-tech text-white placeholder-slate-500 focus:outline-none focus:border-sky-400"
-              />
-              <button
-                onclick="enviarMensagemLCD()"
-                class="bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-semibold text-sm px-4 py-2 rounded-xl transition cursor-pointer"
-              >
-                Enviar
-              </button>
-              <button
-                onclick="limparLCD()"
-                class="bg-slate-700 hover:bg-slate-600 active:scale-[0.98] text-slate-200 font-semibold text-sm px-3.5 py-2 rounded-xl transition cursor-pointer"
-              >
-                LIMPAR
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="mt-4 pt-3 border-t border-slate-700/60 text-xs text-slate-400 flex justify-between items-center">
-          <span>Tópico Comando: <code id="topicoLcdBadge" class="font-mono-tech text-sky-400">caixa_agua/bancada1/lcd</code></span>
-        </div>
-      </div>
-
-    </section>
-
-    <!-- Monitor de Telemetria JSON I/O em Tempo Real -->
-    <section class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-        <div class="flex items-center gap-2.5">
-          <span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
-          <h2 class="text-xs font-bold uppercase tracking-widest text-slate-300">
-            Monitor de Pacotes JSON em Tempo Real (Entradas & Saídas I/O)
-          </h2>
-        </div>
-        <div class="flex items-center gap-3">
-          <span id="contadorPacotes" class="text-xs font-mono-tech text-slate-400">Pacotes recebidos: 0</span>
-          <button
-            onclick="limparLog()"
-            class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-lg border border-slate-600 transition cursor-pointer"
-          >
-            Limpar Log
-          </button>
-        </div>
-      </div>
-
-      <div
-        id="consoleJson"
-        class="bg-[#090d16] border border-slate-700/80 rounded-xl p-4 h-40 overflow-y-auto font-mono-tech text-xs space-y-1.5 text-slate-300"
-      >
-        <div class="text-slate-500">[Sistema] Aguardando telemetria JSON do tópico <span class="text-sky-400">caixa_agua/bancada1/json</span>...</div>
-      </div>
-    </section>
-
-    <!-- Tabela de Arquitetura e Pinagem do Hardware -->
-    <section class="bg-[#1e293b] border border-slate-700/80 rounded-2xl p-6 shadow-xl">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-        <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">
-          Arquitetura e Pinagem do Hardware (Arduino Uno)
-        </h2>
-        <span class="text-xs text-slate-400">Serial 9600 bps &bull; MQTT Porta 1883 / WSS 8884</span>
-      </div>
-
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse text-sm">
-          <thead>
-            <tr class="border-b border-slate-700 text-sky-400 text-xs uppercase tracking-wider">
-              <th class="py-3 px-4">Componente</th>
-              <th class="py-3 px-4">Pinos Arduino Uno</th>
-              <th class="py-3 px-4">Função no Processo</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-700/60 text-slate-300">
-            <tr class="hover:bg-slate-800/50 transition">
-              <td class="py-3 px-4 font-semibold text-white">Sensor Ultrassônico HC-SR04</td>
-              <td class="py-3 px-4"><code class="bg-slate-900 px-2 py-0.5 rounded text-sky-300">TRIG: D9 | ECHO: D10</code></td>
-              <td class="py-3 px-4">Mede a distância real até o nível d'água (faixa de 30 cm) com filtro de mediana.</td>
-            </tr>
-            <tr class="hover:bg-slate-800/50 transition">
-              <td class="py-3 px-4 font-semibold text-white">Potenciômetro 10kΩ</td>
-              <td class="py-3 px-4"><code class="bg-slate-900 px-2 py-0.5 rounded text-amber-300">Pino Analógico A0</code></td>
-              <td class="py-3 px-4">Ajusta o Setpoint de nível desejado entre 15% e 85%.</td>
-            </tr>
-            <tr class="hover:bg-slate-800/50 transition">
-              <td class="py-3 px-4 font-semibold text-white">Display LCD 16x2 I2C</td>
-              <td class="py-3 px-4"><code class="bg-slate-900 px-2 py-0.5 rounded text-emerald-300">SDA: A4 | SCL: A5</code></td>
-              <td class="py-3 px-4">Exibe Nível, Setpoint, barra gráfica de enchimento e alertas remotos MQTT.</td>
-            </tr>
-            <tr class="hover:bg-slate-800/50 transition">
-              <td class="py-3 px-4 font-semibold text-white">LED Verde + Resistor 220Ω</td>
-              <td class="py-3 px-4"><code class="bg-slate-900 px-2 py-0.5 rounded text-emerald-300">Pino Digital D7</code></td>
-              <td class="py-3 px-4">Fica aceso fixo quando o nível está OK e pisca enquanto a bomba está enchendo.</td>
-            </tr>
-            <tr class="hover:bg-slate-800/50 transition">
-              <td class="py-3 px-4 font-semibold text-white">LED Vermelho + Resistor 220Ω</td>
-              <td class="py-3 px-4"><code class="bg-slate-900 px-2 py-0.5 rounded text-rose-300">Pino Digital D8</code></td>
-              <td class="py-3 px-4">Fica aceso fixo abaixo do Setpoint e pisca rápido em risco de transbordo (&ge;95%).</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-  </main>
-
-  <footer class="text-center text-slate-500 text-xs mt-10 px-4">
-    Projeto IoT Industrial &bull; Arduino Uno + Python Serial Bridge + HiveMQ MQTT Broker
-  </footer>
+  </div>
 
   <script>
-    let client = null;
-    let topicoBase = "caixa_agua/bancada1";
-    let modoDemo = false;
-    let mensagemRemota = "";
-    let totalPacotes = 0;
+    // ==========================================
+    // 1. ESTADO DO PROCESSO E PARÂMETROS ARDUINO
+    // ==========================================
+    const NIVEL_TRANSBORDO = 95;
+    const HISTERESE_PCT    = 2;
+    const MAX_PONTOS       = 45;
 
-    const sliderNivel = document.getElementById("sliderNivel");
-    const sliderSetpoint = document.getElementById("sliderSetpoint");
+    const estado = {
+      nivel: 42,
+      setpoint: 65,
+      bomba: true,
+      sensorOk: true,
+      alerta: false
+    };
 
-    function registrarLog(tipo, mensagem, corClasse = "text-slate-300") {
-      const consoleEl = document.getElementById("consoleJson");
-      const agora = new Date().toLocaleTimeString("pt-BR");
-      const linha = document.createElement("div");
-      linha.className = corClasse;
-      linha.innerHTML = `<span class="text-slate-500">[${agora}]</span> <span class="font-bold">${tipo}:</span> ${mensagem}`;
-      consoleEl.appendChild(linha);
+    const historicoNivel    = [];
+    const historicoSetpoint = [];
+    let somAtivo = true;
+    let ultimoAlarmeSonoro = 0;
 
-      // Mantém no máximo 40 linhas no log para fluidez
-      while (consoleEl.children.length > 40) {
-        consoleEl.removeChild(consoleEl.firstChild);
-      }
-      consoleEl.scrollTop = consoleEl.scrollHeight;
-    }
+    // ==========================================
+    // 2. WEB AUDIO API (BIPES E ALARME DISCRETO)
+    // ==========================================
+    let audioCtx = null;
 
-    function limparLog() {
-      document.getElementById("consoleJson").innerHTML = "";
-      totalPacotes = 0;
-      document.getElementById("contadorPacotes").textContent = "Pacotes recebidos: 0";
-    }
-
-    function conectarMQTT() {
-      if (client) {
-        try {
-          client.end(true);
-        } catch (e) {}
-      }
-
-      topicoBase = document.getElementById("topicInput").value.trim() || "caixa_agua/bancada1";
-      document.getElementById("topicoLcdBadge").textContent = `${topicoBase}/lcd`;
-
-      const badge = document.getElementById("statusBadge");
-      const dot = document.getElementById("statusDot");
-      const text = document.getElementById("statusText");
-
-      badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-semibold mb-3";
-      dot.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse";
-      text.textContent = `Conectando ao HiveMQ (${topicoBase})...`;
-
-      const clientId = "web_caixa_iot_" + Math.random().toString(16).substring(2, 10);
-
+    function tocarSom(freq = 540, duracao = 0.08, tipo = 'sine', volume = 0.05) {
+      if (!somAtivo) return;
       try {
-        client = mqtt.connect("wss://broker.hivemq.com:8884/mqtt", {
-          clientId: clientId,
-          clean: true,
-          reconnectPeriod: 3000
-        });
-      } catch (erro) {
-        // Ambiente de preview (Canvas) bloqueia WebSockets externos por política de sandbox
-        client = null;
-        badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs sm:text-sm font-semibold mb-3";
-        dot.className = "w-2.5 h-2.5 rounded-full bg-sky-400";
-        text.textContent = "Preview Local (WebSocket externo ativo no GitHub Pages)";
-
-        registrarLog(
-          "SANDBOX",
-          "O ambiente de preview bloqueia WebSockets externos. No GitHub Pages a conexão com wss://broker.hivemq.com:8884 funcionará automaticamente.",
-          "text-amber-300"
-        );
-
-        if (!modoDemo) {
-          alternarModoDemo();
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
-        return;
-      }
-
-      client.on("connect", () => {
-        badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs sm:text-sm font-semibold mb-3";
-        dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]";
-        text.textContent = `Conectado ao HiveMQ • Escutando ${topicoBase}/json`;
-
-        client.subscribe(`${topicoBase}/json`);
-        registrarLog("MQTT", `Inscrito em ${topicoBase}/json`, "text-emerald-400");
-      });
-
-      client.on("error", () => {
-        badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs sm:text-sm font-semibold mb-3";
-        dot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
-        text.textContent = "Erro de conexão com o broker HiveMQ";
-      });
-
-      client.on("offline", () => {
-        badge.className = "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs sm:text-sm font-semibold mb-3";
-        dot.className = "w-2.5 h-2.5 rounded-full bg-amber-400";
-        text.textContent = "Desconectado do HiveMQ — Reconectando...";
-      });
-
-      client.on("message", (topic, payload) => {
-        if (modoDemo) return; // Ignora pacotes externos enquanto estiver testando manualmente no modo demo
-
-        const bruto = payload.toString();
-        try {
-          const dados = JSON.parse(bruto);
-          totalPacotes++;
-          document.getElementById("contadorPacotes").textContent = `Pacotes recebidos: ${totalPacotes}`;
-          registrarLog("IN (Arduino)", bruto, "text-sky-300");
-          atualizarInterface(dados);
-        } catch (e) {
-          registrarLog("ERRO JSON", bruto, "text-rose-400");
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
         }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = tipo;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duracao);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duracao);
+      } catch (e) {
+        // Ignora caso o navegador bloqueie áudio antes de interação
+      }
+    }
+
+    function alternarSom() {
+      somAtivo = !somAtivo;
+      document.getElementById('btnSom').innerText = somAtivo ? '🔊 Som: ON' : '🔇 Som: OFF';
+      if (somAtivo) tocarSom(660, 0.07);
+    }
+
+    // ==========================================
+    // 3. TERMINAL DE LOGS
+    // ==========================================
+    function logTerminal(texto, tipo = '') {
+      const term = document.getElementById('terminal');
+      const hora = new Date().toLocaleTimeString('pt-BR', { hour12: false });
+      const linha = document.createElement('div');
+
+      if (tipo === 'cmd') linha.className = 'text-[#06b6d4]';
+      else if (tipo === 'err') linha.className = 'text-[#ef4444] font-semibold';
+      else if (tipo === 'ok') linha.className = 'text-[#10b981]';
+
+      linha.textContent = `[${hora}] ${texto}`;
+      term.prepend(linha);
+
+      while (term.children.length > 45) {
+        term.removeChild(term.lastChild);
+      }
+    }
+
+    // ==========================================
+    // 4. CONTROLE REMOTO E SIMULAÇÃO DA BANCADA
+    // ==========================================
+    function enviarComando(cmd) {
+      tocarSom(cmd === '1' ? 680 : 400, 0.09, 'triangle', 0.06);
+      const desc = cmd === '1' ? 'LIGAR BOMBA (1)' : 'DESLIGAR BOMBA (0)';
+      logTerminal(`Publicado em alisson_reservatorio/comando -> ${desc}`, 'cmd');
+
+      if (cmd === '1') {
+        if (!estado.sensorOk || estado.nivel >= NIVEL_TRANSBORDO) {
+          logTerminal('Intertravamento ativo: falha de sensor ou transbordo impede partida.', 'err');
+          estado.bomba = false;
+        } else {
+          estado.bomba = true;
+        }
+      } else {
+        estado.bomba = false;
+      }
+
+      atualizarSupervisao(true);
+    }
+
+    function alterarNivelManual(valor) {
+      estado.nivel = parseInt(valor, 10);
+
+      // Lógica automática idêntica ao Arduino
+      if (estado.sensorOk && estado.nivel < NIVEL_TRANSBORDO) {
+        if (estado.nivel < estado.setpoint) {
+          estado.bomba = true;
+        } else if (estado.nivel >= estado.setpoint + HISTERESE_PCT) {
+          estado.bomba = false;
+        }
+      }
+
+      atualizarSupervisao(true);
+    }
+
+    function alterarSetpointManual(valor) {
+      estado.setpoint = parseInt(valor, 10);
+
+      if (estado.sensorOk && estado.nivel < NIVEL_TRANSBORDO) {
+        if (estado.nivel < estado.setpoint) {
+          estado.bomba = true;
+        } else if (estado.nivel >= estado.setpoint + HISTERESE_PCT) {
+          estado.bomba = false;
+        }
+      }
+
+      atualizarSupervisao(true);
+    }
+
+    function alternarFalhaSensor() {
+      estado.sensorOk = !estado.sensorOk;
+      const btn = document.getElementById('btnFalhaSensor');
+
+      if (!estado.sensorOk) {
+        estado.bomba = false;
+        btn.textContent = 'Restaurar Sensor HC-SR04';
+        btn.className = 'px-3.5 py-2 rounded-xl text-xs font-bold border border-[#ef4444] bg-[#ef4444]/20 text-[#f87171] transition cursor-pointer whitespace-nowrap';
+        logTerminal('ALERTA CRÍTICO: Falha de eco no sensor HC-SR04! Bomba desligada.', 'err');
+      } else {
+        btn.textContent = 'Simular Falha Sensor';
+        btn.className = 'px-3.5 py-2 rounded-xl text-xs font-bold border border-[#334155] bg-[#1e293b] text-[#f1f5f9] hover:border-[#ef4444] transition cursor-pointer whitespace-nowrap';
+        logTerminal('Sensor ultrassônico HC-SR04 restabelecido (ONLINE).', 'ok');
+      }
+
+      atualizarSupervisao(true);
+    }
+
+    // ==========================================
+    // 5. ATUALIZAÇÃO VISUAL E GRÁFICO CANVAS
+    // ==========================================
+    function atualizarSupervisao(registrarPonto = true) {
+      const transbordo = estado.nivel >= NIVEL_TRANSBORDO;
+      const alertaAnterior = estado.alerta;
+      estado.alerta = (!estado.sensorOk || transbordo);
+
+      if (estado.alerta) {
+        estado.bomba = false;
+        if (!alertaAnterior && transbordo) {
+          logTerminal(`ALERTA DE TRANSBORDO (${estado.nivel}%)! Corte de segurança acionado.`, 'err');
+        }
+        // Alarme sonoro discreto a cada 2.5s enquanto em alerta
+        const agora = Date.now();
+        if (agora - ultimoAlarmeSonoro > 2500) {
+          ultimoAlarmeSonoro = agora;
+          tocarSom(880, 0.14, 'sawtooth', 0.04);
+        }
+      }
+
+      document.getElementById('lastUpdate').textContent =
+        'Atualizado: ' + new Date().toLocaleTimeString('pt-BR', { hour12: false });
+
+      // Tanque e água
+      const waterMass = document.getElementById('waterMass');
+      waterMass.style.height = `${estado.nivel}%`;
+      waterMass.classList.toggle('danger', estado.alerta);
+
+      document.getElementById('pctText').textContent = `${estado.nivel}%`;
+      document.getElementById('litrosText').textContent = `${estado.nivel * 10} L / 1000 L`;
+
+      // Setpoint
+      document.getElementById('spMarker').style.bottom = `${estado.setpoint}%`;
+      document.getElementById('spBadge').textContent = `SP: ${estado.setpoint}%`;
+      document.getElementById('kpiSetpoint').textContent = `${estado.setpoint}%`;
+
+      // Turbina, Tubulação e Bolhas
+      const impeller  = document.getElementById('impeller');
+      const pipeFlow  = document.getElementById('pipeFlow');
+      const bubbles   = document.getElementById('bubbles');
+      const pumpLabel = document.getElementById('pumpLabel');
+      const flowRate  = document.getElementById('flowRate');
+      const kpiBomba  = document.getElementById('kpiBomba');
+
+      if (estado.bomba) {
+        impeller.classList.add('running');
+        pipeFlow.classList.add('running');
+        bubbles.classList.add('active');
+        pumpLabel.textContent = 'OPERANDO';
+        pumpLabel.className = 'text-sm font-bold text-[#10b981]';
+        flowRate.textContent = '18.5 L/m';
+        kpiBomba.textContent = 'LIGADA';
+        kpiBomba.className = 'mono text-lg font-extrabold text-[#10b981] mt-1';
+      } else {
+        impeller.classList.remove('running');
+        pipeFlow.classList.remove('running');
+        bubbles.classList.remove('active');
+        pumpLabel.textContent = 'PARADA';
+        pumpLabel.className = 'text-sm font-bold text-[#94a3b8]';
+        flowRate.textContent = '0.0 L/m';
+        kpiBomba.textContent = 'DESLIGADA';
+        kpiBomba.className = 'mono text-lg font-extrabold text-[#94a3b8] mt-1';
+      }
+
+      // KPIs Sensor e Diagnóstico
+      const kpiSensor = document.getElementById('kpiSensor');
+      kpiSensor.textContent = estado.sensorOk ? 'ONLINE' : 'FALHA';
+      kpiSensor.className = estado.sensorOk
+        ? 'mono text-lg font-extrabold text-[#10b981] mt-1'
+        : 'mono text-lg font-extrabold text-[#ef4444] mt-1';
+
+      const kpiAlerta = document.getElementById('kpiAlerta');
+      kpiAlerta.textContent = estado.alerta ? 'CRÍTICO!' : 'NORMAL';
+      kpiAlerta.className = estado.alerta
+        ? 'mono text-lg font-extrabold text-[#ef4444] mt-1'
+        : 'mono text-lg font-extrabold text-[#10b981] mt-1';
+
+      // Sincroniza sliders da barra de simulação
+      document.getElementById('sliderNivel').value = estado.nivel;
+      document.getElementById('lblSimNivel').textContent = `${estado.nivel}%`;
+      document.getElementById('sliderSetpoint').value = estado.setpoint;
+      document.getElementById('lblSimSetpoint').textContent = `${estado.setpoint}%`;
+
+      if (registrarPonto) {
+        historicoNivel.push(estado.nivel);
+        historicoSetpoint.push(estado.setpoint);
+        if (historicoNivel.length > MAX_PONTOS) {
+          historicoNivel.shift();
+          historicoSetpoint.shift();
+        }
+        desenharGrafico();
+      }
+    }
+
+    function desenharGrafico() {
+      const canvas = document.getElementById('trendChart');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+
+      if (rect.width === 0 || rect.height === 0) return;
+
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+
+      const w = rect.width;
+      const h = rect.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Grade horizontal
+      ctx.strokeStyle = 'rgba(51, 65, 85, 0.45)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i < 4; i++) {
+        const y = (h / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      if (historicoNivel.length < 2) return;
+
+      const stepX = w / (MAX_PONTOS - 1);
+
+      // Linha Setpoint (Tracejada Laranja)
+      ctx.save();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      historicoSetpoint.forEach((val, idx) => {
+        const x = idx * stepX;
+        const y = h - (val / 100) * h;
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       });
-    }
+      ctx.stroke();
+      ctx.restore();
 
-    function atualizarInterface(dados) {
-      const nivel = Math.max(0, Math.min(100, Number(dados.nivel ?? 0)));
-      const setpoint = Math.max(0, Math.min(100, Number(dados.setpoint ?? 50)));
-      const bombaLigada = Boolean(dados.bomba);
-      const transbordo = nivel >= 95;
+      // Linha Nível (Sólida Ciano)
+      ctx.strokeStyle = estado.alerta ? '#ef4444' : '#06b6d4';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      historicoNivel.forEach((val, idx) => {
+        const x = idx * stepX;
+        const y = h - (val / 100) * h;
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
 
-      // Atualiza entradas (Tanque, Linha Setpoint e Distância em cm)
-      document.getElementById("waterFill").style.height = `${nivel}%`;
-      document.getElementById("setpointLine").style.bottom = `${setpoint}%`;
-      document.getElementById("setpointTag").textContent = `SP: ${setpoint}%`;
-      document.getElementById("nivelTexto").textContent = `${nivel}%`;
-      document.getElementById("setpointTexto").textContent = `${setpoint}%`;
-
-      const distanciaCm = ((100 - nivel) * 0.30).toFixed(1);
-      document.getElementById("distanciaSimulada").textContent = `Distância: ${distanciaCm} cm`;
-
-      // Referências das saídas (Bomba + LEDs D7 e D8)
-      const estadoTexto = document.getElementById("estadoTexto");
-      const bombaBadge = document.getElementById("bombaBadge");
-      const ledVerde = document.getElementById("ledVerde");
-      const ledVermelho = document.getElementById("ledVermelho");
-      const descLedVerde = document.getElementById("descLedVerde");
-      const descLedVermelho = document.getElementById("descLedVermelho");
-
-      if (transbordo) {
-        estadoTexto.textContent = "ALERTA DE TRANSBORDO!";
-        estadoTexto.className = "pt-1 text-xs font-bold uppercase tracking-wider text-rose-500";
-
-        bombaBadge.textContent = "CORTADA (SEGURANÇA)";
-        bombaBadge.className = "px-3 py-1 rounded-lg text-xs font-mono-tech font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/30";
-
-        ledVerde.className = "w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-600";
-        descLedVerde.textContent = "Apagado • Bomba bloqueada";
-        descLedVerde.className = "text-xs text-slate-400";
-
-        ledVermelho.className = "w-6 h-6 rounded-full bg-rose-500 shadow-[0_0_18px_#f43f5e] led-blinking border-2 border-rose-200";
-        descLedVermelho.textContent = "Piscando • Emergência nível máximo";
-        descLedVermelho.className = "text-xs text-rose-400 font-semibold";
-      } else if (bombaLigada) {
-        estadoTexto.textContent = "Enchendo Reservatório...";
-        estadoTexto.className = "pt-1 text-xs font-bold uppercase tracking-wider text-amber-400";
-
-        bombaBadge.textContent = "LIGADA (ON)";
-        bombaBadge.className = "px-3 py-1 rounded-lg text-xs font-mono-tech font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-
-        ledVerde.className = "w-6 h-6 rounded-full bg-emerald-400 shadow-[0_0_16px_#34d399] led-blinking border-2 border-emerald-200";
-        descLedVerde.textContent = "Piscando • Bomba enchendo";
-        descLedVerde.className = "text-xs text-emerald-400 font-medium";
-
-        ledVermelho.className = "w-6 h-6 rounded-full bg-rose-500 shadow-[0_0_16px_#f43f5e] border-2 border-rose-200";
-        descLedVermelho.textContent = "Aceso Fixo • Nível abaixo do Setpoint";
-        descLedVermelho.className = "text-xs text-rose-400 font-medium";
+      // Área preenchida com gradiente
+      ctx.lineTo((historicoNivel.length - 1) * stepX, h);
+      ctx.lineTo(0, h);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      if (estado.alerta) {
+        grad.addColorStop(0, 'rgba(239, 68, 68, 0.28)');
+        grad.addColorStop(1, 'rgba(239, 68, 68, 0.0)');
       } else {
-        estadoTexto.textContent = "Nível Estabilizado";
-        estadoTexto.className = "pt-1 text-xs font-bold uppercase tracking-wider text-emerald-400";
-
-        bombaBadge.textContent = "DESLIGADA (OK)";
-        bombaBadge.className = "px-3 py-1 rounded-lg text-xs font-mono-tech font-extrabold bg-slate-700/80 text-slate-300 border border-slate-600";
-
-        ledVerde.className = "w-6 h-6 rounded-full bg-emerald-400 shadow-[0_0_16px_#34d399] border-2 border-emerald-200";
-        descLedVerde.textContent = "Aceso Fixo • Sistema normal";
-        descLedVerde.className = "text-xs text-emerald-400 font-medium";
-
-        ledVermelho.className = "w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-600";
-        descLedVermelho.textContent = "Apagado • Sem alertas";
-        descLedVermelho.className = "text-xs text-slate-400";
+        grad.addColorStop(0, 'rgba(6, 182, 212, 0.28)');
+        grad.addColorStop(1, 'rgba(6, 182, 212, 0.0)');
       }
-
-      // Atualiza espelho do Display LCD 16x2
-      const statusCurto = transbordo ? "ERR" : (bombaLigada ? "ON " : "OK ");
-      const linha0 = `N:${String(nivel).padStart(3, " ")}% SP:${String(setpoint).padStart(2, " ")}% ${statusCurto}`;
-      document.getElementById("lcdLinha0").textContent = linha0;
-
-      if (transbordo) {
-        document.getElementById("lcdLinha1").textContent = "!TRANSBORDO MAX!";
-      } else if (mensagemRemota !== "") {
-        document.getElementById("lcdLinha1").textContent = mensagemRemota.padEnd(16, " ");
-      } else {
-        const blocos = Math.round((nivel / 100) * 10);
-        const barra = "[" + "|".repeat(blocos) + " ".repeat(10 - blocos) + "]";
-        document.getElementById("lcdLinha1").textContent = `${barra} ${bombaLigada ? "BOM" : "PAR"}`;
-      }
+      ctx.fillStyle = grad;
+      ctx.fill();
     }
 
-    function enviarMensagemLCD() {
-      const input = document.getElementById("msgLcdInput");
-      const texto = input.value.trim();
-      if (!texto) return;
+    // ==========================================
+    // 6. LOOP DE SIMULAÇÃO EM TEMPO REAL (850ms)
+    // ==========================================
+    function iniciarSimulacao() {
+      // Preenche pontos iniciais para o gráfico já abrir populado
+      const serieInicial = [34, 35, 36, 37, 38, 39, 40, 41, 42];
+      serieInicial.forEach((n) => {
+        historicoNivel.push(n);
+        historicoSetpoint.push(estado.setpoint);
+      });
 
-      mensagemRemota = texto.substring(0, 16);
-      input.value = "";
+      logTerminal('Telemetria recebida: {"nivel":42,"setpoint":65,"bomba":true,"sensor_ok":true}');
+      logTerminal('Assinado tópico: alisson_reservatorio/telemetria', 'cmd');
+      logTerminal('Conexão estabelecida com broker.hivemq.com:8884 (WSS)', 'ok');
 
-      if (client && client.connected) {
-        client.publish(`${topicoBase}/lcd`, mensagemRemota);
-        registrarLog("OUT (LCD)", `Publicado '${mensagemRemota}' em ${topicoBase}/lcd`, "text-amber-400");
-      } else {
-        registrarLog("LOCAL (LCD)", `Exibido '${mensagemRemota}' (MQTT desconectado)`, "text-amber-400");
-      }
+      atualizarSupervisao(false);
+      desenharGrafico();
 
-      if (modoDemo) simularDadosLocais();
+      setInterval(() => {
+        const autoEnchimento = document.getElementById('chkAuto').checked;
+
+        if (autoEnchimento && estado.bomba && estado.sensorOk && estado.nivel < NIVEL_TRANSBORDO) {
+          estado.nivel = Math.min(100, estado.nivel + 1);
+
+          // Desliga automaticamente ao atingir Setpoint + 2% de histerese
+          if (estado.nivel >= estado.setpoint + HISTERESE_PCT) {
+            estado.bomba = false;
+            tocarSom(520, 0.1, 'sine', 0.05);
+            logTerminal(
+              `Setpoint + histerese atingido (${estado.nivel}%). Bomba desligada automaticamente.`,
+              'ok'
+            );
+          }
+        }
+
+        atualizarSupervisao(true);
+      }, 850);
     }
 
-    function limparLCD() {
-      mensagemRemota = "";
-      if (client && client.connected) {
-        client.publish(`${topicoBase}/lcd`, "LIMPAR");
-        registrarLog("OUT (LCD)", `Publicado 'LIMPAR' em ${topicoBase}/lcd`, "text-amber-400");
-      }
-      if (modoDemo) simularDadosLocais();
-    }
-
-    function alternarModoDemo() {
-      modoDemo = !modoDemo;
-      const painelDemo = document.getElementById("painelDemo");
-      const btn = document.getElementById("btnToggleDemo");
-      const label = document.getElementById("modoAtualLabel");
-
-      if (modoDemo) {
-        painelDemo.classList.remove("hidden");
-        btn.textContent = "Voltar ao Tempo Real";
-        btn.className = "bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-xl transition cursor-pointer";
-        label.textContent = "Modo: Demonstração Local";
-        label.className = "text-xs font-semibold text-amber-400 uppercase tracking-wider";
-        registrarLog("SISTEMA", "Modo Demonstração Local ativado (sliders habilitados).", "text-amber-300");
-        simularDadosLocais();
-      } else {
-        painelDemo.classList.add("hidden");
-        btn.textContent = "Ativar Demo Local";
-        btn.className = "bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-slate-600 transition cursor-pointer";
-        label.textContent = "Modo: Hardware Real (MQTT)";
-        label.className = "text-xs font-semibold text-emerald-400 uppercase tracking-wider";
-        registrarLog("SISTEMA", "Retornado ao modo Tempo Real via HiveMQ.", "text-emerald-400");
-      }
-    }
-
-    function simularDadosLocais() {
-      const nivel = parseInt(sliderNivel.value, 10);
-      const setpoint = parseInt(sliderSetpoint.value, 10);
-      document.getElementById("labelSliderNivel").textContent = `${nivel}%`;
-      document.getElementById("labelSliderSetpoint").textContent = `${setpoint}%`;
-
-      const bomba = nivel < 95 && nivel < setpoint;
-      const pacoteSimulado = { nivel, setpoint, bomba, alerta: bomba || nivel >= 95 };
-
-      totalPacotes++;
-      document.getElementById("contadorPacotes").textContent = `Pacotes simulados: ${totalPacotes}`;
-      registrarLog("DEMO (I/O)", JSON.stringify(pacoteSimulado), "text-sky-300");
-
-      atualizarInterface(pacoteSimulado);
-    }
-
-    sliderNivel.addEventListener("input", simularDadosLocais);
-    sliderSetpoint.addEventListener("input", simularDadosLocais);
-    document.getElementById("msgLcdInput").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") enviarMensagemLCD();
-    });
-
-    // Inicia conectado diretamente ao HiveMQ ao carregar a página
-    window.addEventListener("load", conectarMQTT);
+    window.addEventListener('resize', desenharGrafico);
+    window.onload = function () {
+      iniciarSimulacao();
+    };
   </script>
 </body>
 </html>
